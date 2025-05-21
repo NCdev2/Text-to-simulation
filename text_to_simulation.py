@@ -2,13 +2,20 @@ import streamlit as st
 import matplotlib
 import matplotlib.pyplot as plt
 import io
-import google.oauth2.service_account
-from google.cloud import aiplatform
-from google.cloud.aiplatform.gapic import PredictionServiceClient
 import json
 import os
 import requests
-from dotenv import load_dotenv
+
+# Only import dotenv if not running on Streamlit Cloud
+if not hasattr(st.secrets, "VERTEX_AI_API_KEY"):
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+# Get API key from st.secrets (Streamlit Cloud) or .env (local)
+VERTEX_AI_API_KEY = st.secrets["VERTEX_AI_API_KEY"] if "VERTEX_AI_API_KEY" in st.secrets else os.getenv("VERTEX_AI_API_KEY")
 
 # Set Streamlit page config for better mobile/desktop experience
 st.set_page_config(page_title="Text-to-Simulation", layout="centered", initial_sidebar_state="auto")
@@ -255,32 +262,9 @@ def get_simulation_parameters_from_vertex_ai(text_prompt, model_identifier, proj
     except Exception as e:
         return None, input_character_count, 0, str(e)
 
-# --- GCP Credentials Setup ---
-# gcp_creds_dict = None
-# PROJECT_ID = None
-# LOCATION = "us-central1"
-# credentials = None
-# if 'gcp_service_account' in st.secrets:
-#     try:
-#         gcp_creds_dict = st.secrets["gcp_service_account"]
-#         credentials = google.oauth2.service_account.Credentials.from_service_account_info(gcp_creds_dict)
-#         PROJECT_ID = gcp_creds_dict.get("project_id", "YOUR_PROJECT_ID")
-#         st.sidebar.success(f"Authenticated to GCP Project: {PROJECT_ID}")
-#     except Exception as e:
-#         st.sidebar.error(f"GCP Authentication Error: {e}")
-#         st.stop()
-# else:
-#     st.sidebar.error("GCP service account credentials not found in Streamlit secrets!")
-#     st.info("Please configure your `gcp_service_account` in Streamlit's secrets manager.")
-#     st.stop()
-
 # Set your project and location for Vertex AI REST API
 PROJECT_ID = "text-to-simulation"  # Set your GCP project ID here
 LOCATION = "us-central1"            # Or your preferred region
-
-# Load .env file for API key
-load_dotenv()
-VERTEX_AI_API_KEY = os.getenv("VERTEX_AI_API_KEY")
 
 # Streamlit UI
 st.title("🚀 Text-to-Simulation with Visualization")
