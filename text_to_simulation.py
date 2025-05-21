@@ -215,16 +215,19 @@ MODEL_PRICING = {
     }
 }
 
+USD_TO_INR_RATE = 83.0 # Placeholder exchange rate: 1 USD = 83 INR
+
 # --- Cost Estimation Function ---
 def estimate_vertex_ai_cost(model_identifier, input_chars, output_chars):
     pricing_info = MODEL_PRICING.get(model_identifier)
     if not pricing_info:
-        return "Cost unknown (pricing info not found for this model)", 0.0
-    input_cost = (input_chars / 1000) * pricing_info["input_cost_per_1k_chars"]
-    output_cost = (output_chars / 1000) * pricing_info["output_cost_per_1k_chars"]
-    total_cost = input_cost + output_cost
+        return "Cost unknown (pricing info not found for this model)", 0.0, 0.0
+    input_cost_usd = (input_chars / 1000) * pricing_info["input_cost_per_1k_chars"]
+    output_cost_usd = (output_chars / 1000) * pricing_info["output_cost_per_1k_chars"]
+    total_cost_usd = input_cost_usd + output_cost_usd
     currency = pricing_info["currency"]
-    return f"Estimated Cost: {total_cost:.6f} {currency}", total_cost
+    total_cost_inr = total_cost_usd * USD_TO_INR_RATE
+    return f"Estimated Cost: {total_cost_usd:.6f} {currency} (~ {total_cost_inr:.2f} INR)", total_cost_usd, total_cost_inr
 
 # --- Vertex AI REST Call Function (Service Account OAuth2) ---
 def get_access_token_from_service_account(sa_json_path):
@@ -296,10 +299,15 @@ Enter a natural language description of a simple physics simulation (e.g.,
 # --- Model Selection UI ---
 available_models = list(MODEL_PRICING.keys())
 selected_model_id = st.sidebar.selectbox("Select Vertex AI Model for Cost Estimate:", available_models)
+input_cost_usd_sidebar = MODEL_PRICING[selected_model_id]['input_cost_per_1k_chars']
+output_cost_usd_sidebar = MODEL_PRICING[selected_model_id]['output_cost_per_1k_chars']
+input_cost_inr_sidebar = input_cost_usd_sidebar * USD_TO_INR_RATE
+output_cost_inr_sidebar = output_cost_usd_sidebar * USD_TO_INR_RATE
+
 st.sidebar.markdown(f"""
 **Selected Model Pricing ({MODEL_PRICING[selected_model_id]['currency']}/1k chars):**
-- Input: {MODEL_PRICING[selected_model_id]['input_cost_per_1k_chars']:.6f}
-- Output: {MODEL_PRICING[selected_model_id]['output_cost_per_1k_chars']:.6f}
+- Input: {input_cost_usd_sidebar:.6f} USD (~ {input_cost_inr_sidebar:.4f} INR)
+- Output: {output_cost_usd_sidebar:.6f} USD (~ {output_cost_inr_sidebar:.4f} INR)
 """)
 
 # --- Cost Calculator in Main UI ---
@@ -310,7 +318,7 @@ simulated_output = '{"object_name": "ball", "initial_position": 0, "velocity": 1
 input_chars = len(user_prompt_for_cost)
 output_chars = len(simulated_output)
 if st.button("Estimate Vertex AI API Cost"):
-    cost_message, total_cost = estimate_vertex_ai_cost(selected_model_id, input_chars, output_chars)
+    cost_message, total_cost_usd, total_cost_inr = estimate_vertex_ai_cost(selected_model_id, input_chars, output_chars)
     st.info(f"{cost_message}\n(Input: {input_chars} chars, Output: {output_chars} chars)")
 
 # --- Live Vertex AI Call UI ---
@@ -331,6 +339,7 @@ if st.button("Call Vertex AI (Gemini) Live"):
     if not sa_json_path:
         st.error("Please upload a service account JSON key file.")
     else:
+        st.write(f"Attempting to call API with model ID: '{selected_model_id}'") # DEBUG LINE
         with st.spinner(f"Calling Vertex AI model {selected_model_id}..."):
             response_text, input_chars, output_chars, error = get_simulation_parameters_from_vertex_ai(
                 live_prompt, selected_model_id, PROJECT_ID, LOCATION, sa_json_path
@@ -341,7 +350,7 @@ if st.button("Call Vertex AI (Gemini) Live"):
             st.success("Vertex AI response received!")
             st.markdown("**Raw Model Output:**")
             st.code(response_text, language="json")
-            cost_message, total_cost = estimate_vertex_ai_cost(selected_model_id, input_chars, output_chars)
+            cost_message, total_cost_usd, total_cost_inr = estimate_vertex_ai_cost(selected_model_id, input_chars, output_chars)
             st.info(f"{cost_message}\n(Input: {input_chars} chars, Output: {output_chars} chars)")
             # Try to parse JSON for downstream simulation
             try:
