@@ -5,6 +5,7 @@ import io
 import json
 import os
 import requests
+import streamlit.components.v1 as components # Added for Three.js
 
 # Only import dotenv if not running on Streamlit Cloud
 if not hasattr(st.secrets, "VERTEX_AI_API_KEY"):
@@ -201,6 +202,147 @@ def plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
+# --- Function to create Three.js HTML ---
+def create_threejs_visualization_html(position_data, time_data):
+    if not position_data:
+        position_data = [0] # Default position if data is empty
+    if not time_data:
+        time_data = [0]
+
+    # Convert Python lists to JSON strings to safely embed in JavaScript
+    position_data_json = json.dumps(position_data)
+    time_data_json = json.dumps(time_data) # Though not directly used in this animation logic, good to have
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Three.js Visualization</title>
+        <style>
+            body {{ margin: 0; overflow: hidden; }}
+            #threejs-container {{ width: 100%; height: 400px; }}
+        </style>
+    </head>
+    <body>
+        <div id="threejs-container"></div>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+        <script>
+            const container = document.getElementById('threejs-container');
+            let scene, camera, renderer, sphere;
+            let animationFrameId;
+
+            // Data from Python
+            const positionData = {position_data_json};
+            const timeData = {time_data_json}; // For potential future use in timing
+            let currentFrame = 0;
+            const totalFrames = positionData.length;
+            // Adjust animationSpeed: lower is faster if each step is a data point,
+            // or higher if it means 'skip N render frames per data point update'.
+            // Let's aim for updating data point roughly every few screen refreshes.
+            const dataUpdateInterval = 5; // Update object position every 5 render frames
+
+            function init() {{
+                scene = new THREE.Scene();
+                scene.background = new THREE.Color(0xf0f0f0);
+
+                const aspect = container.clientWidth / container.clientHeight;
+                camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+                // Position camera to view motion along x-axis.
+                // Assuming positions are not extremely large.
+                const maxPos = Math.max(...positionData.map(Math.abs));
+                const cameraZ = Math.max(10, maxPos / 2 + 5); // Adjust Z based on max position
+                const cameraY = Math.max(5, maxPos / 10);    // Adjust Y slightly
+                camera.position.set(maxPos / 2, cameraY, cameraZ);
+                camera.lookAt(maxPos / 2, 0, 0); // Look at the center of expected motion range
+
+                renderer = new THREE.WebGLRenderer({{ antialias: true }});
+                renderer.setSize(container.clientWidth, container.clientHeight);
+                container.appendChild(renderer.domElement);
+
+                // Lighting
+                const ambientLight = new THREE.AmbientLight(0x606060);
+                scene.add(ambientLight);
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(1, 1, 1).normalize();
+                scene.add(directionalLight);
+
+                // Object
+                const geometry = new THREE.SphereGeometry(0.5, 32, 32);
+                const material = new THREE.MeshStandardMaterial({{ color: 0x007bff }}); // Blue
+                sphere = new THREE.Mesh(geometry, material);
+                sphere.position.y = 0; // Keep it on the x-z plane, moving along x
+                sphere.position.z = 0;
+                scene.add(sphere);
+
+                // Initial position
+                if (totalFrames > 0) {{
+                    sphere.position.x = positionData[0];
+                }} else {{
+                    sphere.position.x = 0;
+                }}
+                
+                window.addEventListener('resize', onWindowResize, false);
+            }}
+
+            function onWindowResize() {{
+                if (camera && renderer && container) {{
+                    camera.aspect = container.clientWidth / container.clientHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(container.clientWidth, container.clientHeight);
+                }}
+            }}
+
+            function animate() {{
+                animationFrameId = requestAnimationFrame(animate);
+
+                if (totalFrames > 0) {{
+                    // currentFrame is render frame, dataIndex is index into positionData
+                    const dataIndex = Math.floor(currentFrame / dataUpdateInterval);
+                    if (dataIndex < totalFrames) {{
+                        sphere.position.x = positionData[dataIndex];
+                    }} else {{
+                        // Loop animation: reset currentFrame which implies resetting dataIndex
+                        currentFrame = 0; 
+                        sphere.position.x = positionData[0];
+                    }}
+                }}
+                currentFrame++;
+                renderer.render(scene, camera);
+            }}
+
+            // Cleanup function for Streamlit to call if component is re-rendered/removed
+            // This is a bit advanced and might not be directly callable from st.html,
+            // but good practice in complex JS. For now, rely on iframe isolation.
+            function cleanup() {{
+                if (animationFrameId) cancelAnimationFrame(animationFrameId);
+                if (renderer) renderer.dispose();
+                // Remove event listeners, etc.
+                window.removeEventListener('resize', onWindowResize);
+                if (container && renderer.domElement) {{
+                     // container.removeChild(renderer.domElement); // This can cause issues if re-init
+                }}
+            }}
+            
+            // Start
+            if (container.clientWidth > 0 && container.clientHeight > 0) {{
+                init();
+                if (totalFrames > 0) {{
+                    animate();
+                }} else {{
+                    renderer.render(scene, camera); // Render static scene if no animation data
+                }}
+            }} else {{
+                // Fallback or error for zero-size container, though Streamlit usually handles this.
+                console.warn("Three.js container has zero dimensions.");
+            }}
+
+        </script>
+    </body>
+    </html>
+    """
+    return html_content
+
 # --- COST CALCULATION CONSTANTS (EXAMPLE - REPLACE WITH ACTUAL CURRENT PRICING!) ---
 MODEL_PRICING = {
     "gemini-1.0-pro-002": { # Updated model identifier
@@ -366,9 +508,17 @@ if st.button("Call Vertex AI (Gemini) Live"):
                 st.success(f"Simulation for **{obj.capitalize()}** completed.")
                 st.markdown("### Simulation Log")
                 st.code("Time (s) | Position (m) | Velocity (m/s)\n" + "-"*40 + "\n" + "\n".join([str(line) for line in log_lines]), language="text")
-                st.markdown("### Visualization")
+                st.markdown("### Visualization (2D Plot)")
                 fig = plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
                 st.pyplot(fig, use_container_width=True)
+
+                st.markdown("### 3D Visualization")
+                if time_data and position_data:
+                    threejs_html = create_threejs_visualization_html(position_data, time_data)
+                    components.html(threejs_html, height=450, scrolling=False)
+                else:
+                    st.info("Not enough data for 3D visualization.")
+
                 st.markdown("---")
                 st.markdown("#### Download Data")
                 csv = "Time,Position,Velocity\n" + "\n".join([f"{t},{p},{v}" for t,p,v in zip(list(time_data), list(position_data), list(velocity_data))])
@@ -399,9 +549,17 @@ if submitted:
         st.success(f"Simulation for **{obj.capitalize()}** completed.")
         st.markdown("### Simulation Log")
         st.code("Time (s) | Position (m) | Velocity (m/s)\n" + "-"*40 + "\n" + "\n".join([str(line) for line in log_lines]), language="text")
-        st.markdown("### Visualization")
+        st.markdown("### Visualization (2D Plot)")
         fig = plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
         st.pyplot(fig, use_container_width=True)
+
+        st.markdown("### 3D Visualization")
+        if time_data and position_data: # Ensure data exists
+            threejs_html = create_threejs_visualization_html(position_data, time_data)
+            components.html(threejs_html, height=450, scrolling=False)
+        else:
+            st.info("Not enough data for 3D visualization.")
+
         st.markdown("---")
         st.markdown("#### Download Data")
         csv = "Time,Position,Velocity\n" + "\n".join([f"{t},{p},{v}" for t,p,v in zip(list(time_data), list(position_data), list(velocity_data))])
