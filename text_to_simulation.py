@@ -6,6 +6,9 @@ import google.oauth2.service_account
 from google.cloud import aiplatform
 from google.cloud.aiplatform.gapic import PredictionServiceClient
 import json
+import os
+import requests
+from dotenv import load_dotenv
 
 # Set Streamlit page config for better mobile/desktop experience
 st.set_page_config(page_title="Text-to-Simulation", layout="centered", initial_sidebar_state="auto")
@@ -216,29 +219,39 @@ def estimate_vertex_ai_cost(model_identifier, input_chars, output_chars):
     currency = pricing_info["currency"]
     return f"Estimated Cost: {total_cost:.6f} {currency}", total_cost
 
-# --- Vertex AI Live Call Function ---
-def get_simulation_parameters_from_vertex_ai(text_prompt, model_identifier, project, location, credentials):
+# --- Vertex AI REST Call Function ---
+def get_simulation_parameters_from_vertex_ai(text_prompt, model_identifier, project, location, credentials=None):
+    """
+    Calls Vertex AI Gemini model using REST API and API key from .env.
+    """
     input_character_count = len(text_prompt)
     output_character_count = 0
-    if PredictionServiceClient is None:
-        return None, input_character_count, 0, "google-cloud-aiplatform is not installed. Please install it with 'pip install google-cloud-aiplatform'"
+    if not VERTEX_AI_API_KEY:
+        return None, input_character_count, 0, "Vertex AI API key not found in .env file."
+    endpoint = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model_identifier}:predict"
+    headers = {
+        "Authorization": f"Bearer {VERTEX_AI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    prompt = f"""
+    Extract the simulation parameters from the following text and return as a JSON object with keys: object_name, initial_position, initial_velocity, velocity, acceleration, time_duration, time_step.\nText: {text_prompt}
+    """
+    payload = {
+        "instances": [{"content": prompt}],
+        "parameters": {"temperature": 0.2, "maxOutputTokens": 256}
+    }
     try:
-        client = PredictionServiceClient(credentials=credentials)
-        endpoint = f"projects/{project}/locations/{location}/publishers/google/models/{model_identifier}"
-        prompt = f"""
-        Extract the simulation parameters from the following text and return as a JSON object with keys: object_name, initial_position, initial_velocity, velocity, acceleration, time_duration, time_step.
-        Text: {text_prompt}
-        """
-        instance = {"content": prompt}
-        instances = [instance]
-        parameters = {"temperature": 0.2, "maxOutputTokens": 256}
-        response = client.predict(endpoint=endpoint, instances=instances, parameters=parameters)
-        if response and response.predictions:
-            response_text = response.predictions[0].get('content', '')
-            output_character_count = len(response_text)
-            return response_text, input_character_count, output_character_count, None
+        response = requests.post(endpoint, headers=headers, json=payload)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("predictions"):
+                response_text = result["predictions"][0].get("content", "")
+                output_character_count = len(response_text)
+                return response_text, input_character_count, output_character_count, None
+            else:
+                return None, input_character_count, 0, "No content in response"
         else:
-            return None, input_character_count, 0, "No content in response"
+            return None, input_character_count, 0, f"Vertex AI REST error: {response.status_code} {response.text}"
     except Exception as e:
         return None, input_character_count, 0, str(e)
 
@@ -260,6 +273,10 @@ else:
     st.sidebar.error("GCP service account credentials not found in Streamlit secrets!")
     st.info("Please configure your `gcp_service_account` in Streamlit's secrets manager.")
     st.stop()
+
+# Load .env file for API key
+load_dotenv()
+VERTEX_AI_API_KEY = os.getenv("VERTEX_AI_API_KEY")
 
 # Streamlit UI
 st.title("🚀 Text-to-Simulation with Visualization")
