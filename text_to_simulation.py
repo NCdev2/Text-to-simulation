@@ -229,15 +229,16 @@ def estimate_vertex_ai_cost(model_identifier, input_chars, output_chars):
 # --- Vertex AI REST Call Function ---
 def get_simulation_parameters_from_vertex_ai(text_prompt, model_identifier, project, location, credentials=None):
     """
-    Calls Vertex AI Gemini model using REST API and API key from .env.
+    Calls Vertex AI Gemini model using REST API and API key from .env or st.secrets.
+    Uses API key as a query parameter, not in the Authorization header.
     """
     input_character_count = len(text_prompt)
     output_character_count = 0
     if not VERTEX_AI_API_KEY:
-        return None, input_character_count, 0, "Vertex AI API key not found in .env file."
-    endpoint = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model_identifier}:predict"
+        return None, input_character_count, 0, "Vertex AI API key not found in .env file or st.secrets."
+    # Add API key as query parameter
+    endpoint = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model_identifier}:predict?key={VERTEX_AI_API_KEY}"
     headers = {
-        "Authorization": f"Bearer {VERTEX_AI_API_KEY}",
         "Content-Type": "application/json"
     }
     prompt = f"""
