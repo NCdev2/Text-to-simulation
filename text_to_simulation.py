@@ -203,12 +203,12 @@ def plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
 
 # --- COST CALCULATION CONSTANTS (EXAMPLE - REPLACE WITH ACTUAL CURRENT PRICING!) ---
 MODEL_PRICING = {
-    "gemini-1.0-pro-001": {
+    "gemini-1.0-pro": {
         "input_cost_per_1k_chars": 0.000125, # USD
         "output_cost_per_1k_chars": 0.000375, # USD
         "currency": "USD"
     },
-    "gemini-1.5-flash-001": {
+    "gemini-1.5-flash": {
         "input_cost_per_1k_chars": 0.0000625, # USD
         "output_cost_per_1k_chars": 0.0001875, # USD
         "currency": "USD"
