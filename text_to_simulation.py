@@ -89,6 +89,23 @@ with st.expander("🛠️ About the Tools & Technologies", expanded=False):
     **Responsive Design:**
     - The app uses custom CSS to ensure borders, padding, and layout look good on both desktop and mobile devices.
     """)
+
+with st.expander("💲 Vertex AI API Cost Estimation", expanded=False):
+    st.markdown("""
+    **Vertex AI API calls (for Gemini and similar models) are billed based on the amount of text you send (input) and receive (output), and the model you use.**
+
+    - **Input cost:** Based on the number of characters in your prompt.
+    - **Output cost:** Based on the number of characters in the model's response.
+    - **Model:** Different Gemini models (e.g., Pro, Flash) have different prices.
+
+    **How this app estimates cost:**
+    1. You select a model and enter your prompt.
+    2. The app counts the characters in your input and the (simulated) output.
+    3. It multiplies these counts by the current per-1,000-character price for the selected model.
+    4. The estimated cost is shown before you run the simulation.
+
+    > **Note:** This is an estimate. Actual costs may vary. Always check the [official Vertex AI pricing page](https://cloud.google.com/vertex-ai/pricing) for the latest rates.
+    """)
 # --- END: User Guide and About Section ---
 
 # Placeholder for Gemini API Integration
@@ -150,6 +167,31 @@ def plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
+# --- COST CALCULATION CONSTANTS (EXAMPLE - REPLACE WITH ACTUAL CURRENT PRICING!) ---
+MODEL_PRICING = {
+    "gemini-1.0-pro-001": {
+        "input_cost_per_1k_chars": 0.000125, # USD
+        "output_cost_per_1k_chars": 0.000375, # USD
+        "currency": "USD"
+    },
+    "gemini-1.5-flash-001": {
+        "input_cost_per_1k_chars": 0.0000625, # USD
+        "output_cost_per_1k_chars": 0.0001875, # USD
+        "currency": "USD"
+    }
+}
+
+# --- Cost Estimation Function ---
+def estimate_vertex_ai_cost(model_identifier, input_chars, output_chars):
+    pricing_info = MODEL_PRICING.get(model_identifier)
+    if not pricing_info:
+        return "Cost unknown (pricing info not found for this model)", 0.0
+    input_cost = (input_chars / 1000) * pricing_info["input_cost_per_1k_chars"]
+    output_cost = (output_chars / 1000) * pricing_info["output_cost_per_1k_chars"]
+    total_cost = input_cost + output_cost
+    currency = pricing_info["currency"]
+    return f"Estimated Cost: {total_cost:.6f} {currency}", total_cost
+
 # Streamlit UI
 st.title("🚀 Text-to-Simulation with Visualization")
 st.markdown("""
@@ -158,6 +200,26 @@ Enter a natural language description of a simple physics simulation (e.g.,
 - `rock falling for 3 seconds from 100m`
 - `car accelerates at 2 m/s^2 for 10s`
 """)
+
+# --- Model Selection UI ---
+available_models = list(MODEL_PRICING.keys())
+selected_model_id = st.sidebar.selectbox("Select Vertex AI Model for Cost Estimate:", available_models)
+st.sidebar.markdown(f"""
+**Selected Model Pricing ({MODEL_PRICING[selected_model_id]['currency']}/1k chars):**
+- Input: {MODEL_PRICING[selected_model_id]['input_cost_per_1k_chars']:.6f}
+- Output: {MODEL_PRICING[selected_model_id]['output_cost_per_1k_chars']:.6f}
+""")
+
+# --- Cost Calculator in Main UI ---
+st.markdown("---")
+st.markdown("### 💲 Vertex AI Cost Calculator (Estimate)")
+user_prompt_for_cost = st.text_area("Enter your prompt to estimate cost:", "a ball moving at 10 m/s for 5 seconds", key="cost_prompt")
+simulated_output = '{"object_name": "ball", "initial_position": 0, "velocity": 10, "acceleration": 0, "time_duration": 5, "time_step": 0.1}'
+input_chars = len(user_prompt_for_cost)
+output_chars = len(simulated_output)
+if st.button("Estimate Vertex AI API Cost"):
+    cost_message, total_cost = estimate_vertex_ai_cost(selected_model_id, input_chars, output_chars)
+    st.info(f"{cost_message}\n(Input: {input_chars} chars, Output: {output_chars} chars)")
 
 with st.form("sim_form", clear_on_submit=False):
     user_prompt = st.text_input("Describe the simulation:", "a ball moving at 10 m/s for 5 seconds")
