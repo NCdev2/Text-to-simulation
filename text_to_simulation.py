@@ -2,6 +2,10 @@ import streamlit as st
 import matplotlib
 import matplotlib.pyplot as plt
 import io
+import google.oauth2.service_account
+from google.cloud import aiplatform
+from google.cloud.aiplatform.gapic import PredictionServiceClient
+import json
 
 # Set Streamlit page config for better mobile/desktop experience
 st.set_page_config(page_title="Text-to-Simulation", layout="centered", initial_sidebar_state="auto")
@@ -106,8 +110,28 @@ with st.expander("💲 Vertex AI API Cost Estimation", expanded=False):
 
     > **Note:** This is an estimate. Actual costs may vary. Always check the [official Vertex AI pricing page](https://cloud.google.com/vertex-ai/pricing) for the latest rates.
     """)
-# --- END: User Guide and About Section ---
 
+with st.expander("💡 Profit & Model Improvement: How Your Simulations Add Value", expanded=False):
+    st.markdown("""
+    ### How Profit is Generated
+    - **Pay-per-use Model:** Each time you run a simulation using the Vertex AI API, a small fee is charged (see the cost calculator above). By offering this as a service, the platform can charge users per simulation, bundle credits, or offer premium features for a fee.
+    - **Scalability:** As more users run simulations, the platform's revenue grows. Bulk or enterprise users can be offered volume discounts, while individual users pay per use or via subscription.
+    - **Value-added Services:** Advanced analytics, downloadable reports, or integration with other tools can be offered as premium features, increasing profit potential.
+    - **Data Insights:** Aggregated, anonymized usage data can inform new features, targeted offerings, or even be licensed (with user consent) for research or industry insights.
+
+    ### How Your Usage Improves the AI
+    - **User Feedback:** When you run a simulation, your feedback (e.g., Was the result accurate? Did the model understand your prompt?) can be collected (with your consent) to improve the underlying machine learning models.
+    - **Prompt Diversity:** Every unique prompt helps the AI learn new ways people describe simulations, making the model more robust and accurate for everyone.
+    - **Active Learning:** Difficult or ambiguous cases can be flagged for review, helping data scientists retrain and fine-tune the model for better future performance.
+    - **Community-driven Improvement:** As more users interact, the system can identify gaps in understanding and expand its capabilities, benefiting all users.
+
+    ### Why This Software is Best for Profit
+    - **Low Overhead, High Scalability:** The cloud-based, API-driven approach means minimal infrastructure costs and easy scaling as user demand grows.
+    - **Automated, Self-service:** Users can run simulations anytime, anywhere, without manual intervention, maximizing revenue potential.
+    - **Continuous Model Improvement:** The more the platform is used, the smarter and more valuable it becomes, creating a virtuous cycle of improvement and profit.
+    - **Transparent Costing:** Built-in cost calculators and clear pricing build user trust and encourage more usage.
+    - **Unique Value Proposition:** By combining natural language, simulation, visualization, and cost transparency, this platform stands out from traditional simulation tools.
+    """)
 # Placeholder for Gemini API Integration
 def call_gemini_api(text_prompt):
     if "ball moving at 10 m/s for 5 seconds" in text_prompt.lower():
@@ -192,6 +216,51 @@ def estimate_vertex_ai_cost(model_identifier, input_chars, output_chars):
     currency = pricing_info["currency"]
     return f"Estimated Cost: {total_cost:.6f} {currency}", total_cost
 
+# --- Vertex AI Live Call Function ---
+def get_simulation_parameters_from_vertex_ai(text_prompt, model_identifier, project, location, credentials):
+    input_character_count = len(text_prompt)
+    output_character_count = 0
+    if PredictionServiceClient is None:
+        return None, input_character_count, 0, "google-cloud-aiplatform is not installed. Please install it with 'pip install google-cloud-aiplatform'"
+    try:
+        client = PredictionServiceClient(credentials=credentials)
+        endpoint = f"projects/{project}/locations/{location}/publishers/google/models/{model_identifier}"
+        prompt = f"""
+        Extract the simulation parameters from the following text and return as a JSON object with keys: object_name, initial_position, initial_velocity, velocity, acceleration, time_duration, time_step.
+        Text: {text_prompt}
+        """
+        instance = {"content": prompt}
+        instances = [instance]
+        parameters = {"temperature": 0.2, "maxOutputTokens": 256}
+        response = client.predict(endpoint=endpoint, instances=instances, parameters=parameters)
+        if response and response.predictions:
+            response_text = response.predictions[0].get('content', '')
+            output_character_count = len(response_text)
+            return response_text, input_character_count, output_character_count, None
+        else:
+            return None, input_character_count, 0, "No content in response"
+    except Exception as e:
+        return None, input_character_count, 0, str(e)
+
+# --- GCP Credentials Setup ---
+gcp_creds_dict = None
+PROJECT_ID = None
+LOCATION = "us-central1"
+credentials = None
+if 'gcp_service_account' in st.secrets:
+    try:
+        gcp_creds_dict = st.secrets["gcp_service_account"]
+        credentials = google.oauth2.service_account.Credentials.from_service_account_info(gcp_creds_dict)
+        PROJECT_ID = gcp_creds_dict.get("project_id", "YOUR_PROJECT_ID")
+        st.sidebar.success(f"Authenticated to GCP Project: {PROJECT_ID}")
+    except Exception as e:
+        st.sidebar.error(f"GCP Authentication Error: {e}")
+        st.stop()
+else:
+    st.sidebar.error("GCP service account credentials not found in Streamlit secrets!")
+    st.info("Please configure your `gcp_service_account` in Streamlit's secrets manager.")
+    st.stop()
+
 # Streamlit UI
 st.title("🚀 Text-to-Simulation with Visualization")
 st.markdown("""
@@ -220,6 +289,50 @@ output_chars = len(simulated_output)
 if st.button("Estimate Vertex AI API Cost"):
     cost_message, total_cost = estimate_vertex_ai_cost(selected_model_id, input_chars, output_chars)
     st.info(f"{cost_message}\n(Input: {input_chars} chars, Output: {output_chars} chars)")
+
+# --- Live Vertex AI Call UI ---
+st.markdown("---")
+st.markdown("### 🤖 Run Live Vertex AI Simulation Parameter Extraction")
+live_prompt = st.text_area("Enter your simulation description for live Vertex AI call:", "a ball moving at 10 m/s for 5 seconds", key="live_vertex_prompt")
+if st.button("Call Vertex AI (Gemini) Live"):
+    with st.spinner(f"Calling Vertex AI model {selected_model_id}..."):
+        response_text, input_chars, output_chars, error = get_simulation_parameters_from_vertex_ai(
+            live_prompt, selected_model_id, PROJECT_ID, LOCATION, credentials
+        )
+    if error:
+        st.error(f"Vertex AI Error: {error}")
+    elif response_text:
+        st.success("Vertex AI response received!")
+        st.markdown("**Raw Model Output:**")
+        st.code(response_text, language="json")
+        cost_message, total_cost = estimate_vertex_ai_cost(selected_model_id, input_chars, output_chars)
+        st.info(f"{cost_message}\n(Input: {input_chars} chars, Output: {output_chars} chars)")
+        # Try to parse JSON for downstream simulation
+        try:
+            # Defensive: If any of the lists are None, replace with empty list
+            sim_params = json.loads(response_text)
+            time_data, position_data, velocity_data, log_lines = run_simulation_and_generate_data(sim_params)
+            time_data = time_data if time_data is not None else []
+            position_data = position_data if position_data is not None else []
+            velocity_data = velocity_data if velocity_data is not None else []
+            log_lines = log_lines if log_lines is not None else []
+            obj = sim_params.get('object_name', 'object')
+            acc = sim_params.get('acceleration', 0.0)
+            velocity = sim_params.get('velocity', 0.0)
+            st.success(f"Simulation for **{obj.capitalize()}** completed.")
+            st.markdown("### Simulation Log")
+            st.code("Time (s) | Position (m) | Velocity (m/s)\n" + "-"*40 + "\n" + "\n".join([str(line) for line in log_lines]), language="text")
+            st.markdown("### Visualization")
+            fig = plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
+            st.pyplot(fig, use_container_width=True)
+            st.markdown("---")
+            st.markdown("#### Download Data")
+            csv = "Time,Position,Velocity\n" + "\n".join([f"{t},{p},{v}" for t,p,v in zip(list(time_data), list(position_data), list(velocity_data))])
+            st.download_button("Download CSV", csv, file_name=f"{obj}_simulation.csv", mime="text/csv")
+        except Exception as e:
+            st.warning(f"Could not parse model output as JSON: {e}")
+    else:
+        st.warning("No output received from Vertex AI.")
 
 with st.form("sim_form", clear_on_submit=False):
     user_prompt = st.text_input("Describe the simulation:", "a ball moving at 10 m/s for 5 seconds")
