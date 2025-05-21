@@ -256,23 +256,27 @@ def get_simulation_parameters_from_vertex_ai(text_prompt, model_identifier, proj
         return None, input_character_count, 0, str(e)
 
 # --- GCP Credentials Setup ---
-gcp_creds_dict = None
-PROJECT_ID = None
-LOCATION = "us-central1"
-credentials = None
-if 'gcp_service_account' in st.secrets:
-    try:
-        gcp_creds_dict = st.secrets["gcp_service_account"]
-        credentials = google.oauth2.service_account.Credentials.from_service_account_info(gcp_creds_dict)
-        PROJECT_ID = gcp_creds_dict.get("project_id", "YOUR_PROJECT_ID")
-        st.sidebar.success(f"Authenticated to GCP Project: {PROJECT_ID}")
-    except Exception as e:
-        st.sidebar.error(f"GCP Authentication Error: {e}")
-        st.stop()
-else:
-    st.sidebar.error("GCP service account credentials not found in Streamlit secrets!")
-    st.info("Please configure your `gcp_service_account` in Streamlit's secrets manager.")
-    st.stop()
+# gcp_creds_dict = None
+# PROJECT_ID = None
+# LOCATION = "us-central1"
+# credentials = None
+# if 'gcp_service_account' in st.secrets:
+#     try:
+#         gcp_creds_dict = st.secrets["gcp_service_account"]
+#         credentials = google.oauth2.service_account.Credentials.from_service_account_info(gcp_creds_dict)
+#         PROJECT_ID = gcp_creds_dict.get("project_id", "YOUR_PROJECT_ID")
+#         st.sidebar.success(f"Authenticated to GCP Project: {PROJECT_ID}")
+#     except Exception as e:
+#         st.sidebar.error(f"GCP Authentication Error: {e}")
+#         st.stop()
+# else:
+#     st.sidebar.error("GCP service account credentials not found in Streamlit secrets!")
+#     st.info("Please configure your `gcp_service_account` in Streamlit's secrets manager.")
+#     st.stop()
+
+# Set your project and location for Vertex AI REST API
+PROJECT_ID = "text-to-simulation"  # Set your GCP project ID here
+LOCATION = "us-central1"            # Or your preferred region
 
 # Load .env file for API key
 load_dotenv()
@@ -314,7 +318,7 @@ live_prompt = st.text_area("Enter your simulation description for live Vertex AI
 if st.button("Call Vertex AI (Gemini) Live"):
     with st.spinner(f"Calling Vertex AI model {selected_model_id}..."):
         response_text, input_chars, output_chars, error = get_simulation_parameters_from_vertex_ai(
-            live_prompt, selected_model_id, PROJECT_ID, LOCATION, credentials
+            live_prompt, selected_model_id, PROJECT_ID, LOCATION
         )
     if error:
         st.error(f"Vertex AI Error: {error}")
