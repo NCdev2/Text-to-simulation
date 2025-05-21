@@ -43,6 +43,48 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- BEGIN: User Guide and About Section ---
+with st.expander("ℹ️ How to Use This App", expanded=True):
+    st.markdown("""
+    ### Welcome to **Text-to-Simulation**!
+    This app lets you describe a simple physics scenario in plain English and instantly see a simulation and visualization.
+
+    **How to Use:**
+    1. **Describe your simulation** in the input box. Example prompts:
+        - `a ball moving at 10 m/s for 5 seconds`
+        - `rock falling for 3 seconds from 100m`
+        - `car accelerates at 2 m/s^2 for 10s`
+    2. **Click 'Simulate & Visualize'** to run the simulation.
+    3. **View the simulation log** to see how the object's position and velocity change over time.
+    4. **See the visualization**: The app will plot position and velocity vs. time.
+    5. **Download the data** as a CSV for your own analysis.
+
+    **Tips:**
+    - Use clear, simple English for best results.
+    - The app currently supports basic 1D motion and simple acceleration scenarios.
+    - If your prompt isn't understood, try rephrasing it.
+    """)
+
+with st.expander("🛠️ About the Tools & Technologies", expanded=False):
+    st.markdown("""
+    **Technologies Used:**
+    - [Streamlit](https://streamlit.io): For building the interactive web interface. Streamlit makes it easy to create data apps with Python.
+    - [Matplotlib](https://matplotlib.org): For plotting the simulation results (position and velocity over time).
+    - **Python**: The core simulation logic is written in Python, using basic kinematic equations.
+    - **Gemini API (Placeholder)**: In a real deployment, a language model API (like Gemini or similar) would extract simulation parameters from your text. Here, we use a simple placeholder for demonstration.
+
+    **How it Works:**
+    1. You enter a natural language description.
+    2. The app (eventually via Gemini API) extracts the physical parameters (object, velocity, acceleration, etc.).
+    3. The simulation engine computes the object's motion step by step.
+    4. The results are displayed as a log and a plot.
+    5. You can download the data for further use.
+
+    **Responsive Design:**
+    - The app uses custom CSS to ensure borders, padding, and layout look good on both desktop and mobile devices.
+    """)
+# --- END: User Guide and About Section ---
+
 # Placeholder for Gemini API Integration
 def call_gemini_api(text_prompt):
     if "ball moving at 10 m/s for 5 seconds" in text_prompt.lower():
