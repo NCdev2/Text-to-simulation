@@ -18,6 +18,16 @@ if not hasattr(st.secrets, "VERTEX_AI_API_KEY"):
 # Get API key from st.secrets (Streamlit Cloud) or .env (local)
 VERTEX_AI_API_KEY = st.secrets["VERTEX_AI_API_KEY"] if "VERTEX_AI_API_KEY" in st.secrets else os.getenv("VERTEX_AI_API_KEY")
 
+# Ensure google.auth and related libraries are available for get_access_token_from_service_account
+try:
+    import google.auth
+    import google.auth.transport.requests
+    from google.oauth2 import service_account
+except ImportError:
+    st.error("google-auth and google-auth-oauthlib are required for Service Account authentication. Please install them.")
+    # Optionally, provide installation instructions or halt execution
+    # For example: st.stop()
+
 # Set Streamlit page config for better mobile/desktop experience
 st.set_page_config(page_title="Text-to-Simulation", layout="centered", initial_sidebar_state="auto")
 
@@ -156,7 +166,7 @@ def call_gemini_api(text_prompt):
 
 def run_simulation_and_generate_data(parameters):
     if not parameters:
-        return None, None, None, None
+        return None, None, None
     obj = parameters.get('object_name', 'object')
     pos = parameters.get('initial_position', 0.0)
     vel = parameters.get('initial_velocity', parameters.get('velocity', 0.0))
@@ -167,9 +177,7 @@ def run_simulation_and_generate_data(parameters):
     time_data = []
     position_data = []
     velocity_data = []
-    log_lines = []
     while current_time <= duration:
-        log_lines.append(f"{current_time:>8.2f} | {pos:>12.2f} | {vel:>14.2f}")
         time_data.append(current_time)
         position_data.append(pos)
         velocity_data.append(vel)
@@ -178,7 +186,7 @@ def run_simulation_and_generate_data(parameters):
         current_time += time_step
         if current_time > duration and (current_time - time_step) < duration:
             current_time = duration
-    return time_data, position_data, velocity_data, log_lines
+    return time_data, position_data, velocity_data
 
 def plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity):
     fig, ax1 = plt.subplots(figsize=(8, 5))
@@ -203,140 +211,292 @@ def plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
     return fig
 
 # --- Function to create Three.js HTML ---
-def create_threejs_visualization_html(position_data, time_data):
-    if not position_data:
-        position_data = [0] # Default position if data is empty
-    if not time_data:
-        time_data = [0]
-
-    # Convert Python lists to JSON strings to safely embed in JavaScript
-    position_data_json = json.dumps(position_data)
-    time_data_json = json.dumps(time_data) # Though not directly used in this animation logic, good to have
-
+def create_threejs_visualization_html():
     html_content = f"""
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
     <head>
-        <meta charset="utf-8">
-        <title>Three.js Visualization</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Three.js Parameter Visualization</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
         <style>
-            body {{ margin: 0; overflow: hidden; }}
-            #threejs-container {{ width: 100%; height: 400px; }}
+            body {{ margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; }}
+            /* Adjusted to be relative to the container div, not 100vw/vh */
+            #threejs_canvas_container {{ width: 100%; height: 100%; display: block; }} 
+            #controls {{
+                position: absolute;
+                top: 10px; /* Adjusted for less padding if container is smaller */
+                left: 10px;
+                background-color: rgba(30, 41, 59, 0.9); /* bg-slate-800 with opacity */
+                padding: 15px; /* Slightly reduced padding */
+                border-radius: 12px;
+                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+                color: white;
+                max-width: 280px; /* Adjusted max-width */
+                max-height: calc(100% - 20px); /* Relative to parent height */
+                overflow-y: auto;
+                font-size: 0.8rem; /* Smaller base font for controls */
+            }}
+            #controls::-webkit-scrollbar {{
+                width: 6px;
+            }}
+            #controls::-webkit-scrollbar-track {{
+                background: #2d3748; /* bg-slate-700 */
+                border-radius: 10px;
+            }}
+            #controls::-webkit-scrollbar-thumb {{
+                background: #4a5568; /* bg-slate-600 */
+                border-radius: 10px;
+            }}
+            #controls::-webkit-scrollbar-thumb:hover {{
+                background: #718096; /* bg-slate-500 */
+            }}
+            .control-group {{ margin-bottom: 10px; }}
+            .control-group label {{
+                display: block;
+                margin-bottom: 4px;
+                font-weight: 500;
+                color: #cbd5e1; /* text-slate-300 */
+            }}
+            .control-group input[type="range"], .control-group input[type="color"], .control-group select {{
+                width: 100%;
+                margin-top: 4px;
+                border-radius: 6px;
+                font-size: 0.8rem;
+            }}
+            .control-group input[type="range"] {{
+                accent-color: #3b82f6; /* accent-blue-500 */
+            }}
+            .control-group input[type="color"] {{
+                height: 30px;
+                padding: 2px;
+                border: 1px solid #4a5568; /* border-slate-600 */
+                background-clip: content-box; 
+            }}
+             .control-group select {{
+                background-color: #374151; /* bg-gray-700 for select */
+                border: 1px solid #4a5568;
+                padding: 5px;
+            }}
+            .control-group .value-display {{
+                font-size: 0.75rem; /* Smaller value display */
+                color: #94a3b8; /* text-slate-400 */
+                margin-left: 5px;
+            }}
+            h2 {{
+                font-size: 1.1rem; /* Smaller heading */
+                font-weight: 600;
+                margin-bottom: 0.8rem;
+                border-bottom: 1px solid #4a5568; /* border-slate-600 */
+                padding-bottom: 0.4rem;
+            }}
         </style>
     </head>
     <body>
-        <div id="threejs-container"></div>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-        <script>
-            const container = document.getElementById('threejs-container');
-            let scene, camera, renderer, sphere;
-            let animationFrameId;
+        <!-- Renamed outer container to avoid conflict if user has #container elsewhere -->
+        <div id="threejs_visualization_app_container" style="width: 100%; height: 100%; position: relative;">
+            <div id="threejs_canvas_container"></div> <!-- Canvas will be appended here -->
+            <div id="controls"> <!-- Controls are absolutely positioned relative to this container -->
+                <h2>Controls</h2>
 
-            // Data from Python
-            const positionData = {position_data_json};
-            const timeData = {time_data_json}; // For potential future use in timing
-            let currentFrame = 0;
-            const totalFrames = positionData.length;
-            // Adjust animationSpeed: lower is faster if each step is a data point,
-            // or higher if it means 'skip N render frames per data point update'.
-            // Let's aim for updating data point roughly every few screen refreshes.
-            const dataUpdateInterval = 5; // Update object position every 5 render frames
+                <div class="control-group">
+                    <label for="shape">Shape:</label>
+                    <select id="shape" class="w-full p-2 rounded-md bg-slate-700 border border-slate-600 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="cube">Cube</option>
+                        <option value="sphere">Sphere</option>
+                        <option value="torus">Torus</option>
+                        <option value="cone">Cone</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>Position:</label>
+                    <div>X: <input type="range" id="posX" min="-5" max="5" value="0" step="0.1"><span class="value-display" id="posXVal">0</span></div>
+                    <div>Y: <input type="range" id="posY" min="-5" max="5" value="0" step="0.1"><span class="value-display" id="posYVal">0</span></div>
+                    <div>Z: <input type="range" id="posZ" min="-5" max="5" value="0" step="0.1"><span class="value-display" id="posZVal">0</span></div>
+                </div>
+
+                <div class="control-group">
+                    <label>Rotation (degrees):</label>
+                    <div>X: <input type="range" id="rotX" min="0" max="360" value="0" step="1"><span class="value-display" id="rotXVal">0</span></div>
+                    <div>Y: <input type="range" id="rotY" min="0" max="360" value="0" step="1"><span class="value-display" id="rotYVal">0</span></div>
+                    <div>Z: <input type="range" id="rotZ" min="0" max="360" value="0" step="1"><span class="value-display" id="rotZVal">0</span></div>
+                </div>
+
+                <div class="control-group">
+                    <label for="scale">Scale:</label>
+                    <input type="range" id="scale" min="0.1" max="3" value="1" step="0.05"><span class="value-display" id="scaleVal">1</span>
+                </div>
+
+                <div class="control-group">
+                    <label for="color">Color:</label>
+                    <input type="color" id="color" value="#3b82f6">
+                </div>
+
+                <div class="control-group">
+                    <label for="lightIntensity">Light Intensity:</label>
+                    <input type="range" id="lightIntensity" min="0" max="5" value="1.5" step="0.1"><span class="value-display" id="lightIntensityVal">1.5</span>
+                </div>
+
+                <div class="control-group">
+                    <label for="animationSpeed">Animation Speed (Y-axis):</label>
+                    <input type="range" id="animationSpeed" min="0" max="0.1" value="0.005" step="0.001"><span class="value-display" id="animationSpeedVal">0.005</span>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let scene, camera, renderer, object, ambientLight, directionalLight;
+            let currentShape = 'cube';
+
+            // DOM Elements for controls
+            const shapeSelector = document.getElementById('shape');
+            const posXSlider = document.getElementById('posX');
+            const posYSlider = document.getElementById('posY');
+            const posZSlider = document.getElementById('posZ');
+            const rotXSlider = document.getElementById('rotX');
+            const rotYSlider = document.getElementById('rotY');
+            const rotZSlider = document.getElementById('rotZ');
+            const scaleSlider = document.getElementById('scale');
+            const colorPicker = document.getElementById('color');
+            const lightIntensitySlider = document.getElementById('lightIntensity');
+            const animationSpeedSlider = document.getElementById('animationSpeed');
+
+            const posXVal = document.getElementById('posXVal');
+            const posYVal = document.getElementById('posYVal');
+            const posZVal = document.getElementById('posZVal');
+            const rotXVal = document.getElementById('rotXVal');
+            const rotYVal = document.getElementById('rotYVal');
+            const rotZVal = document.getElementById('rotZVal');
+            const scaleVal = document.getElementById('scaleVal');
+            const lightIntensityVal = document.getElementById('lightIntensityVal');
+            const animationSpeedVal = document.getElementById('animationSpeedVal');
+            
+            const canvasContainer = document.getElementById('threejs_canvas_container'); // Target for renderer
 
             function init() {{
                 scene = new THREE.Scene();
-                scene.background = new THREE.Color(0xf0f0f0);
+                scene.background = new THREE.Color(0x1e293b); 
 
-                const aspect = container.clientWidth / container.clientHeight;
-                camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
-                // Position camera to view motion along x-axis.
-                // Assuming positions are not extremely large.
-                const maxPos = Math.max(...positionData.map(Math.abs));
-                const cameraZ = Math.max(10, maxPos / 2 + 5); // Adjust Z based on max position
-                const cameraY = Math.max(5, maxPos / 10);    // Adjust Y slightly
-                camera.position.set(maxPos / 2, cameraY, cameraZ);
-                camera.lookAt(maxPos / 2, 0, 0); // Look at the center of expected motion range
+                camera = new THREE.PerspectiveCamera(75, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
+                camera.position.z = 5;
 
                 renderer = new THREE.WebGLRenderer({{ antialias: true }});
-                renderer.setSize(container.clientWidth, container.clientHeight);
-                container.appendChild(renderer.domElement);
+                renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+                canvasContainer.appendChild(renderer.domElement); // Append to specific div
 
-                // Lighting
-                const ambientLight = new THREE.AmbientLight(0x606060);
+                ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
                 scene.add(ambientLight);
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-                directionalLight.position.set(1, 1, 1).normalize();
+
+                directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 10, 7.5);
                 scene.add(directionalLight);
 
-                // Object
-                const geometry = new THREE.SphereGeometry(0.5, 32, 32);
-                const material = new THREE.MeshStandardMaterial({{ color: 0x007bff }}); // Blue
-                sphere = new THREE.Mesh(geometry, material);
-                sphere.position.y = 0; // Keep it on the x-z plane, moving along x
-                sphere.position.z = 0;
-                scene.add(sphere);
+                createObject(currentShape);
 
-                // Initial position
-                if (totalFrames > 0) {{
-                    sphere.position.x = positionData[0];
-                }} else {{
-                    sphere.position.x = 0;
-                }}
-                
+                shapeSelector.addEventListener('change', onShapeChange);
+                posXSlider.addEventListener('input', updateObjectProperties);
+                posYSlider.addEventListener('input', updateObjectProperties);
+                posZSlider.addEventListener('input', updateObjectProperties);
+                rotXSlider.addEventListener('input', updateObjectProperties);
+                rotYSlider.addEventListener('input', updateObjectProperties);
+                rotZSlider.addEventListener('input', updateObjectProperties);
+                scaleSlider.addEventListener('input', updateObjectProperties);
+                colorPicker.addEventListener('input', updateObjectProperties);
+                lightIntensitySlider.addEventListener('input', updateLightProperties);
+                animationSpeedSlider.addEventListener('input', updateAnimationProperties);
+
+                updateValueDisplays();
                 window.addEventListener('resize', onWindowResize, false);
+                animate();
+            }}
+
+            function createObject(shapeType) {{
+                if (object) {{
+                    scene.remove(object);
+                    object.geometry.dispose();
+                    object.material.dispose();
+                }}
+                let geometry;
+                switch (shapeType) {{
+                    case 'sphere': geometry = new THREE.SphereGeometry(1, 32, 32); break;
+                    case 'torus': geometry = new THREE.TorusGeometry(1, 0.4, 16, 100); break;
+                    case 'cone': geometry = new THREE.ConeGeometry(1, 2, 32); break;
+                    case 'cube': default: geometry = new THREE.BoxGeometry(1.5, 1.5, 1.5); break;
+                }}
+                const material = new THREE.MeshStandardMaterial({{
+                    color: parseInt(colorPicker.value.replace('#', '0x')),
+                    roughness: 0.5, metalness: 0.5
+                }});
+                object = new THREE.Mesh(geometry, material);
+                scene.add(object);
+                updateObjectProperties();
+            }}
+
+            function onShapeChange(event) {{
+                currentShape = event.target.value;
+                createObject(currentShape);
+            }}
+
+            function updateObjectProperties() {{
+                if (!object) return;
+                object.position.x = parseFloat(posXSlider.value);
+                object.position.y = parseFloat(posYSlider.value);
+                object.position.z = parseFloat(posZSlider.value);
+                object.rotation.x = THREE.MathUtils.degToRad(parseFloat(rotXSlider.value));
+                object.rotation.y = THREE.MathUtils.degToRad(parseFloat(rotYSlider.value));
+                object.rotation.z = THREE.MathUtils.degToRad(parseFloat(rotZSlider.value));
+                const scaleValue = parseFloat(scaleSlider.value);
+                object.scale.set(scaleValue, scaleValue, scaleValue);
+                object.material.color.set(colorPicker.value);
+                updateValueDisplays();
+            }}
+
+            function updateLightProperties() {{
+                const intensity = parseFloat(lightIntensitySlider.value);
+                directionalLight.intensity = intensity;
+                updateValueDisplays();
+            }}
+
+            function updateAnimationProperties() {{ updateValueDisplays(); }}
+
+            function updateValueDisplays() {{
+                posXVal.textContent = posXSlider.value;
+                posYVal.textContent = posYSlider.value;
+                posZVal.textContent = posZSlider.value;
+                rotXVal.textContent = rotXSlider.value;
+                rotYVal.textContent = rotYSlider.value;
+                rotZVal.textContent = rotZSlider.value;
+                scaleVal.textContent = scaleSlider.value;
+                lightIntensityVal.textContent = lightIntensitySlider.value;
+                animationSpeedVal.textContent = animationSpeedSlider.value;
             }}
 
             function onWindowResize() {{
-                if (camera && renderer && container) {{
-                    camera.aspect = container.clientWidth / container.clientHeight;
+                if (canvasContainer.clientWidth > 0 && canvasContainer.clientHeight > 0) {{
+                    camera.aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
                     camera.updateProjectionMatrix();
-                    renderer.setSize(container.clientWidth, container.clientHeight);
+                    renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
                 }}
             }}
 
             function animate() {{
-                animationFrameId = requestAnimationFrame(animate);
-
-                if (totalFrames > 0) {{
-                    // currentFrame is render frame, dataIndex is index into positionData
-                    const dataIndex = Math.floor(currentFrame / dataUpdateInterval);
-                    if (dataIndex < totalFrames) {{
-                        sphere.position.x = positionData[dataIndex];
-                    }} else {{
-                        // Loop animation: reset currentFrame which implies resetting dataIndex
-                        currentFrame = 0; 
-                        sphere.position.x = positionData[0];
-                    }}
+                requestAnimationFrame(animate);
+                if (object) {{
+                    const speed = parseFloat(animationSpeedSlider.value);
+                    object.rotation.y += speed;
                 }}
-                currentFrame++;
                 renderer.render(scene, camera);
             }}
-
-            // Cleanup function for Streamlit to call if component is re-rendered/removed
-            // This is a bit advanced and might not be directly callable from st.html,
-            // but good practice in complex JS. For now, rely on iframe isolation.
-            function cleanup() {{
-                if (animationFrameId) cancelAnimationFrame(animationFrameId);
-                if (renderer) renderer.dispose();
-                // Remove event listeners, etc.
-                window.removeEventListener('resize', onWindowResize);
-                if (container && renderer.domElement) {{
-                     // container.removeChild(renderer.domElement); // This can cause issues if re-init
-                }}
-            }}
             
-            // Start
-            if (container.clientWidth > 0 && container.clientHeight > 0) {{
-                init();
-                if (totalFrames > 0) {{
-                    animate();
-                }} else {{
-                    renderer.render(scene, camera); // Render static scene if no animation data
-                }}
+            // Ensure DOM is ready before init
+            if (document.readyState === 'loading') {{
+                document.addEventListener('DOMContentLoaded', init);
             }} else {{
-                // Fallback or error for zero-size container, though Streamlit usually handles this.
-                console.warn("Three.js container has zero dimensions.");
+                init(); // DOMContentLoaded has already fired
             }}
-
         </script>
     </body>
     </html>
@@ -497,34 +657,41 @@ if st.button("Call Vertex AI (Gemini) Live"):
             # Try to parse JSON for downstream simulation
             try:
                 sim_params = json.loads(response_text)
-                time_data, position_data, velocity_data, log_lines = run_simulation_and_generate_data(sim_params)
+                time_data, position_data, velocity_data = run_simulation_and_generate_data(sim_params)
                 time_data = time_data if time_data is not None else []
                 position_data = position_data if position_data is not None else []
                 velocity_data = velocity_data if velocity_data is not None else []
-                log_lines = log_lines if log_lines is not None else []
                 obj = sim_params.get('object_name', 'object')
                 acc = sim_params.get('acceleration', 0.0)
                 velocity = sim_params.get('velocity', 0.0)
-                st.success(f"Simulation for **{obj.capitalize()}** completed.")
-                st.markdown("### Simulation Log")
-                st.code("Time (s) | Position (m) | Velocity (m/s)\n" + "-"*40 + "\n" + "\n".join([str(line) for line in log_lines]), language="text")
-                st.markdown("### Visualization (2D Plot)")
-                fig = plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
-                st.pyplot(fig, use_container_width=True)
+                
+                st.success(f"Simulation for **{obj.capitalize()}** completed based on extracted parameters.")
 
-                st.markdown("### 3D Visualization")
-                if time_data and position_data:
-                    threejs_html = create_threejs_visualization_html(position_data, time_data)
-                    components.html(threejs_html, height=450, scrolling=False)
-                else:
-                    st.info("Not enough data for 3D visualization.")
+                col1, col2 = st.columns(2)
 
+                with col1:
+                    st.markdown("### 2D Plot Visualization")
+                    if time_data and position_data and velocity_data:
+                        fig = plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
+                        st.pyplot(fig, use_container_width=True)
+                    else:
+                        st.info("Not enough data for 2D plot.")
+
+                with col2:
+                    st.markdown("### 3D Interactive Shape Visualization")
+                    threejs_html = create_threejs_visualization_html()
+                    components.html(threejs_html, height=600, scrolling=False)
+                
                 st.markdown("---")
                 st.markdown("#### Download Data")
-                csv = "Time,Position,Velocity\n" + "\n".join([f"{t},{p},{v}" for t,p,v in zip(list(time_data), list(position_data), list(velocity_data))])
-                st.download_button("Download CSV", csv, file_name=f"{obj}_simulation.csv", mime="text/csv")
+                if time_data and position_data and velocity_data:
+                    csv = "Time,Position,Velocity\n" + "\n".join([f"{t},{p},{v}" for t,p,v in zip(list(time_data), list(position_data), list(velocity_data))])
+                    st.download_button("Download CSV", csv, file_name=f"{obj}_simulation.csv", mime="text/csv")
+                else:
+                    st.info("No data to download.")
+
             except Exception as e:
-                st.warning(f"Could not parse model output as JSON: {e}")
+                st.warning(f"Could not process or visualize simulation results: {e}")
         else:
             st.warning("No output received from Vertex AI.")
 
@@ -535,34 +702,38 @@ with st.form("sim_form", clear_on_submit=False):
 if submitted:
     simulation_params = call_gemini_api(user_prompt)
     if simulation_params:
-        time_data, position_data, velocity_data, log_lines = run_simulation_and_generate_data(simulation_params)
+        time_data, position_data, velocity_data = run_simulation_and_generate_data(simulation_params)
         obj = simulation_params.get('object_name', 'object')
         acc = simulation_params.get('acceleration', 0.0)
         velocity = simulation_params.get('velocity', 0.0)
 
-        # Defensive: If any of the lists are None, replace with empty list
         time_data = time_data if time_data is not None else []
         position_data = position_data if position_data is not None else []
         velocity_data = velocity_data if velocity_data is not None else []
-        log_lines = log_lines if log_lines is not None else []
 
-        st.success(f"Simulation for **{obj.capitalize()}** completed.")
-        st.markdown("### Simulation Log")
-        st.code("Time (s) | Position (m) | Velocity (m/s)\n" + "-"*40 + "\n" + "\n".join([str(line) for line in log_lines]), language="text")
-        st.markdown("### Visualization (2D Plot)")
-        fig = plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
-        st.pyplot(fig, use_container_width=True)
+        st.success(f"Simulation for **{obj.capitalize()}** completed using placeholder data.")
+        
+        col1, col2 = st.columns(2)
 
-        st.markdown("### 3D Visualization")
-        if time_data and position_data: # Ensure data exists
-            threejs_html = create_threejs_visualization_html(position_data, time_data)
-            components.html(threejs_html, height=450, scrolling=False)
-        else:
-            st.info("Not enough data for 3D visualization.")
+        with col1:
+            st.markdown("### 2D Plot Visualization")
+            if time_data and position_data and velocity_data:
+                fig = plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
+                st.pyplot(fig, use_container_width=True)
+            else:
+                st.info("Not enough data for 2D plot.")
 
+        with col2:
+            st.markdown("### 3D Interactive Shape Visualization")
+            threejs_html = create_threejs_visualization_html()
+            components.html(threejs_html, height=600, scrolling=False)
+        
         st.markdown("---")
         st.markdown("#### Download Data")
-        csv = "Time,Position,Velocity\n" + "\n".join([f"{t},{p},{v}" for t,p,v in zip(list(time_data), list(position_data), list(velocity_data))])
-        st.download_button("Download CSV", csv, file_name=f"{obj}_simulation.csv", mime="text/csv")
+        if time_data and position_data and velocity_data:
+            csv = "Time,Position,Velocity\n" + "\n".join([f"{t},{p},{v}" for t,p,v in zip(list(time_data), list(position_data), list(velocity_data))])
+            st.download_button("Download CSV", csv, file_name=f"{obj}_simulation.csv", mime="text/csv")
+        else:
+            st.info("No data to download.")
     else:
         st.error("Could not understand the prompt. Please try a different description.")
