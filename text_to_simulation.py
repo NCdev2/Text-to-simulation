@@ -1,63 +1,62 @@
+import streamlit as st
 import matplotlib
-# Try to set a non-interactive backend if no display is available,
-# or an interactive one if it is. This is a bit of a heuristic.
-try:
-    matplotlib.use('Agg') # For saving to file, non-interactive
-    import matplotlib.pyplot as plt
-except ImportError:
-    plt = None # Matplotlib not installed
-except Exception:
-    plt = None
+import matplotlib.pyplot as plt
+import io
+
+# Set Streamlit page config for better mobile/desktop experience
+st.set_page_config(page_title="Text-to-Simulation", layout="centered", initial_sidebar_state="auto")
+
+# Custom CSS for border and responsive design
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #f8f9fa;
+    }
+    .stTextInput>div>div>input {
+        border: 2px solid #4F8BF9;
+        border-radius: 8px;
+        padding: 8px;
+    }
+    .stButton>button {
+        border-radius: 8px;
+        border: 2px solid #4F8BF9;
+        background: #4F8BF9;
+        color: white;
+        font-weight: bold;
+        padding: 8px 24px;
+    }
+    .stMarkdown, .stCodeBlock, .stDataFrame, .stTable {
+        border-radius: 8px;
+        border: 1.5px solid #e0e0e0;
+        background: #fff;
+        padding: 12px;
+        margin-bottom: 16px;
+    }
+    @media (max-width: 600px) {
+        .stApp {
+            padding: 0 2vw;
+        }
+        .stTextInput>div>div>input, .stButton>button {
+            font-size: 1.1em;
+        }
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # Placeholder for Gemini API Integration
 def call_gemini_api(text_prompt):
-    """
-    This function will interact with the Gemini API.
-    It takes a natural language text prompt describing the simulation
-    and is expected to return a structured representation of
-    simulation parameters.
-
-    Args:
-        text_prompt (str): The user's description of the simulation.
-
-    Returns:
-        dict: A dictionary containing simulation parameters.
-              e.g., {'object_name': 'ball', 'initial_position': 0, 'velocity': 10, 'acceleration': 0, 'time_duration': 5, 'time_step': 0.1}
-              Returns None if the API call fails or parsing is unsuccessful.
-    """
-    print(f"\n[GEMINI API CALL (Placeholder)] Processing prompt: '{text_prompt}'")
     if "ball moving at 10 m/s for 5 seconds" in text_prompt.lower():
-        print("[GEMINI API (Placeholder)] Understood: Ball, velocity 10 m/s, duration 5s.")
         return {'object_name': 'ball', 'initial_position': 0, 'velocity': 10, 'acceleration': 0, 'time_duration': 5, 'time_step': 0.1}
     elif "rock falling for 3 seconds from 100m" in text_prompt.lower():
-        print("[GEMINI API (Placeholder)] Understood: Rock, gravity, duration 3s, initial height 100m.")
         return {'object_name': 'rock', 'initial_position': 100, 'initial_velocity': 0, 'acceleration': -9.81, 'time_duration': 3, 'time_step': 0.1}
     elif "car accelerates at 2 m/s^2 for 10s" in text_prompt.lower():
-        print("[GEMINI API (Placeholder)] Understood: Car, acceleration 2 m/s^2, duration 10s.")
         return {'object_name': 'car', 'initial_position': 0, 'initial_velocity': 0, 'acceleration': 2, 'time_duration': 10, 'time_step': 0.1}
     else:
-        print("[GEMINI API (Placeholder)] Could not understand the prompt fully. Using default parameters.")
         return None
 
-# Simple Simulation Engine & Visualization Code Generator
-def run_simulation_and_generate_code(parameters):
-    """
-    Runs a very basic physics simulation and generates Python code for visualization.
-    Args:
-        parameters (dict): A dictionary of simulation parameters.
-    Returns:
-        tuple: (simulation_log_string, visualization_code_string, can_preview)
-               simulation_log_string: Text log of the simulation.
-               visualization_code_string: Python code (string) for Matplotlib visualization.
-               can_preview (bool): Whether a preview is possible (Matplotlib is available).
-    """
+def run_simulation_and_generate_data(parameters):
     if not parameters:
-        log = "\n[SIMULATION ENGINE] Error: No parameters provided for simulation."
-        return log, None, False
-
-    log_lines = ["\n[SIMULATION ENGINE] Starting simulation..."]
-    log_lines.append(f"Parameters: {parameters}")
-
+        return None, None, None, None
     obj = parameters.get('object_name', 'object')
     pos = parameters.get('initial_position', 0.0)
     vel = parameters.get('initial_velocity', parameters.get('velocity', 0.0))
@@ -65,16 +64,10 @@ def run_simulation_and_generate_code(parameters):
     duration = parameters.get('time_duration', 1.0)
     time_step = parameters.get('time_step', 0.1)
     current_time = 0.0
-
     time_data = []
     position_data = []
     velocity_data = []
-
-    header = f"\n--- {obj.capitalize()} Simulation Log ---"
-    log_lines.append(header)
-    log_lines.append(f"Time (s) | Position (m) | Velocity (m/s)")
-    log_lines.append(f"---------|--------------|----------------")
-
+    log_lines = []
     while current_time <= duration:
         log_lines.append(f"{current_time:>8.2f} | {pos:>12.2f} | {vel:>14.2f}")
         time_data.append(current_time)
@@ -85,118 +78,66 @@ def run_simulation_and_generate_code(parameters):
         current_time += time_step
         if current_time > duration and (current_time - time_step) < duration:
             current_time = duration
+    return time_data, position_data, velocity_data, log_lines
 
-    log_lines.append(f"---------|--------------|----------------")
-    log_lines.append(f"[SIMULATION ENGINE] Simulation for {obj} finished after {duration:.2f} seconds.")
-    simulation_log_string = "\n".join(log_lines)
-
-    visualization_code = None
-    can_preview_flag = bool(plt)
-
-    if can_preview_flag:
-        plot_title = f"Simulation of {obj.capitalize()}"
-        if acc != 0:
-            plot_title += f" (Acceleration: {acc} m/s^2)"
-        else:
-            plot_title += f" (Constant Velocity: {parameters.get('velocity', 0.0)} m/s)"
-
-        visualization_code = f"""
-# Visualization Code (Requires Matplotlib: pip install matplotlib)
-import matplotlib.pyplot as plt
-
-time = {time_data}
-position = {position_data}
-velocity = {velocity_data}
-object_name = '{obj}'
-plot_title = "{plot_title}"
-
-fig, ax1 = plt.subplots(figsize=(10, 6))
-color = 'tab:red'
-ax1.set_xlabel('Time (s)')
-ax1.set_ylabel('Position (m)', color=color)
-ax1.plot(time, position, color=color, linestyle='-', marker='o', label=f'{obj} Position')
-ax1.tick_params(axis='y', labelcolor=color)
-ax1.grid(True)
-
-ax2 = ax1.twinx()
-color = 'tab:blue'
-ax2.set_ylabel('Velocity (m/s)', color=color)
-ax2.plot(time, velocity, color=color, linestyle='--', marker='x', label=f'{obj} Velocity')
-ax2.tick_params(axis='y', labelcolor=color)
-
-fig.suptitle(plot_title, fontsize=16)
-fig.legend(loc='upper right', bbox_to_anchor=(0.9, 0.9))
-plt.subplots_adjust(top=0.85)
-plt.show()
-# To save the figure:
-# plt.savefig(f'{obj}_simulation_plot.png')
-# print(f"Plot saved as {obj}_simulation_plot.png")
-"""
+def plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity):
+    fig, ax1 = plt.subplots(figsize=(8, 5))
+    color = 'tab:red'
+    ax1.set_xlabel('Time (s)')
+    ax1.set_ylabel('Position (m)', color=color)
+    ax1.plot(time_data, position_data, color=color, linestyle='-', marker='o', label=f'{obj} Position')
+    ax1.tick_params(axis='y', labelcolor=color)
+    ax1.grid(True)
+    ax2 = ax1.twinx()
+    color = 'tab:blue'
+    ax2.set_ylabel('Velocity (m/s)', color=color)
+    ax2.plot(time_data, velocity_data, color=color, linestyle='--', marker='x', label=f'{obj} Velocity')
+    ax2.tick_params(axis='y', labelcolor=color)
+    plot_title = f"Simulation of {obj.capitalize()}"
+    if acc != 0:
+        plot_title += f" (Acceleration: {acc} m/s^2)"
     else:
-        simulation_log_string += "\n[VISUALIZATION] Matplotlib not found. Cannot generate or preview visualization code."
+        plot_title += f" (Constant Velocity: {velocity} m/s)"
+    fig.suptitle(plot_title, fontsize=16)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return fig
 
-    return simulation_log_string, visualization_code, can_preview_flag
+# Streamlit UI
+st.title("🚀 Text-to-Simulation with Visualization")
+st.markdown("""
+Enter a natural language description of a simple physics simulation (e.g.,
+- `a ball moving at 10 m/s for 5 seconds`
+- `rock falling for 3 seconds from 100m`
+- `car accelerates at 2 m/s^2 for 10s`
+""")
 
-def preview_visualization(visualization_code_string):
-    """
-    Attempts to execute the generated visualization code.
-    WARNING: exec() can be dangerous with untrusted code.
-    """
-    if not plt:
-        print("\n[PREVIEW] Matplotlib is not available. Cannot execute visualization.")
-        return
+with st.form("sim_form", clear_on_submit=False):
+    user_prompt = st.text_input("Describe the simulation:", "a ball moving at 10 m/s for 5 seconds")
+    submitted = st.form_submit_button("Simulate & Visualize")
 
-    print("\n[PREVIEW] Attempting to execute visualization code...")
-    print("NOTE: If the plot window appears, you may need to close it to continue.")
-    try:
-        exec(visualization_code_string, {'plt': plt})
-        print("[PREVIEW] Visualization executed. Check for a plot window.")
-    except Exception as e:
-        print(f"[PREVIEW] Error during visualization execution: {e}")
-        print("[PREVIEW] This could be due to GUI backend issues or errors in the generated code.")
+if submitted:
+    simulation_params = call_gemini_api(user_prompt)
+    if simulation_params:
+        time_data, position_data, velocity_data, log_lines = run_simulation_and_generate_data(simulation_params)
+        obj = simulation_params.get('object_name', 'object')
+        acc = simulation_params.get('acceleration', 0.0)
+        velocity = simulation_params.get('velocity', 0.0)
 
-# Main Application Logic
-def main():
-    """
-    Main function to run the text-to-simulation application.
-    """
-    print("--- Simple Text-to-Simulation (with Gemini API Placeholder & Visualization) ---")
-    if not plt:
-        print("WARNING: Matplotlib library not found. Plot generation and preview will be disabled.")
-        print("Please install it if you want visualization: pip install matplotlib")
+        # Defensive: If any of the lists are None, replace with empty list
+        time_data = time_data if time_data is not None else []
+        position_data = position_data if position_data is not None else []
+        velocity_data = velocity_data if velocity_data is not None else []
+        log_lines = log_lines if log_lines is not None else []
 
-    while True:
-        user_prompt = input("\nDescribe the simulation (e.g., 'a ball moving at 10 m/s for 5 seconds') or type 'exit': \n> ")
-
-        if user_prompt.lower() == 'exit':
-            print("Exiting application.")
-            break
-
-        if not user_prompt.strip():
-            print("Please enter a description.")
-            continue
-
-        simulation_params = call_gemini_api(user_prompt)
-
-        if simulation_params:
-            sim_log, viz_code, can_preview = run_simulation_and_generate_code(simulation_params)
-            print(sim_log)
-
-            if viz_code:
-                print("\n--- Generated Visualization Code (Python with Matplotlib) ---")
-                print(viz_code)
-                print("-----------------------------------------------------------")
-
-                if can_preview:
-                    preview_choice = input("Attempt to preview the visualization? (y/n): ").lower()
-                    if preview_choice == 'y':
-                        preview_visualization(viz_code)
-                else:
-                    print("Preview unavailable (Matplotlib issue).")
-            else:
-                print("\n[MAIN APP] No visualization code generated.")
-        else:
-            print("\n[MAIN APP] Could not run simulation due to issues with parsing the prompt.")
-
-if __name__ == "__main__":
-    main()
+        st.success(f"Simulation for **{obj.capitalize()}** completed.")
+        st.markdown("### Simulation Log")
+        st.code("Time (s) | Position (m) | Velocity (m/s)\n" + "-"*40 + "\n" + "\n".join([str(line) for line in log_lines]), language="text")
+        st.markdown("### Visualization")
+        fig = plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
+        st.pyplot(fig, use_container_width=True)
+        st.markdown("---")
+        st.markdown("#### Download Data")
+        csv = "Time,Position,Velocity\n" + "\n".join([f"{t},{p},{v}" for t,p,v in zip(list(time_data), list(position_data), list(velocity_data))])
+        st.download_button("Download CSV", csv, file_name=f"{obj}_simulation.csv", mime="text/csv")
+    else:
+        st.error("Could not understand the prompt. Please try a different description.")
