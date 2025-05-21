@@ -72,10 +72,16 @@ with st.expander("🛠️ About the Tools & Technologies", expanded=False):
     - [Matplotlib](https://matplotlib.org): For plotting the simulation results (position and velocity over time).
     - **Python**: The core simulation logic is written in Python, using basic kinematic equations.
     - **Gemini API (Placeholder)**: In a real deployment, a language model API (like Gemini or similar) would extract simulation parameters from your text. Here, we use a simple placeholder for demonstration.
+    - **Vertex AI & Machine Learning**: In a production system, Google Vertex AI can be used to host and serve advanced machine learning models (like Gemini or other LLMs). These models are trained to understand natural language and extract structured simulation parameters from your text prompt.
 
-    **How it Works:**
+    **How Machine Learning & Vertex AI Enable Text-to-Simulation:**
+    1. **Text Understanding**: When you enter a description, a large language model (LLM) hosted on Vertex AI analyzes your text and extracts key simulation parameters (object type, initial position, velocity, acceleration, duration, etc.).
+    2. **Code Generation**: The extracted parameters are used to generate Python code that simulates the described scenario. This code can include both the simulation logic and the visualization (e.g., Matplotlib plotting code).
+    3. **Preview & Visualisation**: The app can display the generated code and, if you choose, execute it to show a live plot of the simulation. This lets you see both the code and the resulting visualization, making the process transparent and interactive.
+
+    **How it Works (End-to-End):**
     1. You enter a natural language description.
-    2. The app (eventually via Gemini API) extracts the physical parameters (object, velocity, acceleration, etc.).
+    2. The app (eventually via Gemini API or Vertex AI) extracts the physical parameters (object, velocity, acceleration, etc.) using machine learning.
     3. The simulation engine computes the object's motion step by step.
     4. The results are displayed as a log and a plot.
     5. You can download the data for further use.
