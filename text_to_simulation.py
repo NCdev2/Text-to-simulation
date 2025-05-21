@@ -317,46 +317,56 @@ if st.button("Estimate Vertex AI API Cost"):
 st.markdown("---")
 st.markdown("### 🤖 Run Live Vertex AI Simulation Parameter Extraction")
 live_prompt = st.text_area("Enter your simulation description for live Vertex AI call:", "a ball moving at 10 m/s for 5 seconds", key="live_vertex_prompt")
-sa_json_path = st.text_input("Path to Service Account JSON Key File:", key="sa_json_path")
+sa_json_file = st.file_uploader("Upload Service Account JSON Key File", type=["json"], key="sa_json_file")
+sa_json_path = None
+if sa_json_file is not None:
+    # Save uploaded file to a temp location
+    sa_json_path = f"temp_sa_{int(st.session_state.get('sa_file_counter', 0))}.json"
+    with open(sa_json_path, "wb") as f:
+        f.write(sa_json_file.read())
+    st.session_state['sa_file_counter'] = st.session_state.get('sa_file_counter', 0) + 1
+
 if st.button("Call Vertex AI (Gemini) Live"):
-    with st.spinner(f"Calling Vertex AI model {selected_model_id}..."):
-        response_text, input_chars, output_chars, error = get_simulation_parameters_from_vertex_ai(
-            live_prompt, selected_model_id, PROJECT_ID, LOCATION, sa_json_path
-        )
-    if error:
-        st.error(f"Vertex AI Error: {error}")
-    elif response_text:
-        st.success("Vertex AI response received!")
-        st.markdown("**Raw Model Output:**")
-        st.code(response_text, language="json")
-        cost_message, total_cost = estimate_vertex_ai_cost(selected_model_id, input_chars, output_chars)
-        st.info(f"{cost_message}\n(Input: {input_chars} chars, Output: {output_chars} chars)")
-        # Try to parse JSON for downstream simulation
-        try:
-            # Defensive: If any of the lists are None, replace with empty list
-            sim_params = json.loads(response_text)
-            time_data, position_data, velocity_data, log_lines = run_simulation_and_generate_data(sim_params)
-            time_data = time_data if time_data is not None else []
-            position_data = position_data if position_data is not None else []
-            velocity_data = velocity_data if velocity_data is not None else []
-            log_lines = log_lines if log_lines is not None else []
-            obj = sim_params.get('object_name', 'object')
-            acc = sim_params.get('acceleration', 0.0)
-            velocity = sim_params.get('velocity', 0.0)
-            st.success(f"Simulation for **{obj.capitalize()}** completed.")
-            st.markdown("### Simulation Log")
-            st.code("Time (s) | Position (m) | Velocity (m/s)\n" + "-"*40 + "\n" + "\n".join([str(line) for line in log_lines]), language="text")
-            st.markdown("### Visualization")
-            fig = plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
-            st.pyplot(fig, use_container_width=True)
-            st.markdown("---")
-            st.markdown("#### Download Data")
-            csv = "Time,Position,Velocity\n" + "\n".join([f"{t},{p},{v}" for t,p,v in zip(list(time_data), list(position_data), list(velocity_data))])
-            st.download_button("Download CSV", csv, file_name=f"{obj}_simulation.csv", mime="text/csv")
-        except Exception as e:
-            st.warning(f"Could not parse model output as JSON: {e}")
+    if not sa_json_path:
+        st.error("Please upload a service account JSON key file.")
     else:
-        st.warning("No output received from Vertex AI.")
+        with st.spinner(f"Calling Vertex AI model {selected_model_id}..."):
+            response_text, input_chars, output_chars, error = get_simulation_parameters_from_vertex_ai(
+                live_prompt, selected_model_id, PROJECT_ID, LOCATION, sa_json_path
+            )
+        if error:
+            st.error(f"Vertex AI Error: {error}")
+        elif response_text:
+            st.success("Vertex AI response received!")
+            st.markdown("**Raw Model Output:**")
+            st.code(response_text, language="json")
+            cost_message, total_cost = estimate_vertex_ai_cost(selected_model_id, input_chars, output_chars)
+            st.info(f"{cost_message}\n(Input: {input_chars} chars, Output: {output_chars} chars)")
+            # Try to parse JSON for downstream simulation
+            try:
+                sim_params = json.loads(response_text)
+                time_data, position_data, velocity_data, log_lines = run_simulation_and_generate_data(sim_params)
+                time_data = time_data if time_data is not None else []
+                position_data = position_data if position_data is not None else []
+                velocity_data = velocity_data if velocity_data is not None else []
+                log_lines = log_lines if log_lines is not None else []
+                obj = sim_params.get('object_name', 'object')
+                acc = sim_params.get('acceleration', 0.0)
+                velocity = sim_params.get('velocity', 0.0)
+                st.success(f"Simulation for **{obj.capitalize()}** completed.")
+                st.markdown("### Simulation Log")
+                st.code("Time (s) | Position (m) | Velocity (m/s)\n" + "-"*40 + "\n" + "\n".join([str(line) for line in log_lines]), language="text")
+                st.markdown("### Visualization")
+                fig = plot_simulation(time_data, position_data, velocity_data, obj, acc, velocity)
+                st.pyplot(fig, use_container_width=True)
+                st.markdown("---")
+                st.markdown("#### Download Data")
+                csv = "Time,Position,Velocity\n" + "\n".join([f"{t},{p},{v}" for t,p,v in zip(list(time_data), list(position_data), list(velocity_data))])
+                st.download_button("Download CSV", csv, file_name=f"{obj}_simulation.csv", mime="text/csv")
+            except Exception as e:
+                st.warning(f"Could not parse model output as JSON: {e}")
+        else:
+            st.warning("No output received from Vertex AI.")
 
 with st.form("sim_form", clear_on_submit=False):
     user_prompt = st.text_input("Describe the simulation:", "a ball moving at 10 m/s for 5 seconds")
