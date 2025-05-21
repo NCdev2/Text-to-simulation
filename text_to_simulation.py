@@ -226,19 +226,36 @@ def estimate_vertex_ai_cost(model_identifier, input_chars, output_chars):
     currency = pricing_info["currency"]
     return f"Estimated Cost: {total_cost:.6f} {currency}", total_cost
 
-# --- Vertex AI REST Call Function ---
-def get_simulation_parameters_from_vertex_ai(text_prompt, model_identifier, project, location, credentials=None):
+# --- Vertex AI REST Call Function (Service Account OAuth2) ---
+def get_access_token_from_service_account(sa_json_path):
     """
-    Calls Vertex AI Gemini model using REST API and API key from .env or st.secrets.
-    Uses API key as a query parameter, not in the Authorization header.
+    Returns an OAuth2 access token using a Google service account JSON key file.
+    """
+    import google.auth
+    import google.auth.transport.requests
+    from google.oauth2 import service_account
+    SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+    credentials = service_account.Credentials.from_service_account_file(sa_json_path, scopes=SCOPES)
+    auth_req = google.auth.transport.requests.Request()
+    credentials.refresh(auth_req)
+    return credentials.token
+
+# --- Vertex AI REST Call Function ---
+def get_simulation_parameters_from_vertex_ai(text_prompt, model_identifier, project, location, sa_json_path=None):
+    """
+    Calls Vertex AI Gemini model using REST API and OAuth2 access token from service account JSON.
     """
     input_character_count = len(text_prompt)
     output_character_count = 0
-    if not VERTEX_AI_API_KEY:
-        return None, input_character_count, 0, "Vertex AI API key not found in .env file or st.secrets."
-    # Add API key as query parameter
-    endpoint = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model_identifier}:predict?key={VERTEX_AI_API_KEY}"
+    if not sa_json_path or not os.path.exists(sa_json_path):
+        return None, input_character_count, 0, "Service account JSON key file not found. Please upload it and provide the path."
+    try:
+        access_token = get_access_token_from_service_account(sa_json_path)
+    except Exception as e:
+        return None, input_character_count, 0, f"Failed to get access token: {e}"
+    endpoint = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model_identifier}:predict"
     headers = {
+        "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
     prompt = f"""
@@ -300,10 +317,11 @@ if st.button("Estimate Vertex AI API Cost"):
 st.markdown("---")
 st.markdown("### 🤖 Run Live Vertex AI Simulation Parameter Extraction")
 live_prompt = st.text_area("Enter your simulation description for live Vertex AI call:", "a ball moving at 10 m/s for 5 seconds", key="live_vertex_prompt")
+sa_json_path = st.text_input("Path to Service Account JSON Key File:", key="sa_json_path")
 if st.button("Call Vertex AI (Gemini) Live"):
     with st.spinner(f"Calling Vertex AI model {selected_model_id}..."):
         response_text, input_chars, output_chars, error = get_simulation_parameters_from_vertex_ai(
-            live_prompt, selected_model_id, PROJECT_ID, LOCATION
+            live_prompt, selected_model_id, PROJECT_ID, LOCATION, sa_json_path
         )
     if error:
         st.error(f"Vertex AI Error: {error}")
