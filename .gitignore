@@ -1,3 +1,5 @@
 # Ignore environment variable files
 .env
 .env.*
+# Ignore service account keys and other secrets
+*.json

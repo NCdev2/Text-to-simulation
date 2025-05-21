@@ -317,6 +317,7 @@ if st.button("Estimate Vertex AI API Cost"):
 st.markdown("---")
 st.markdown("### 🤖 Run Live Vertex AI Simulation Parameter Extraction")
 live_prompt = st.text_area("Enter your simulation description for live Vertex AI call:", "a ball moving at 10 m/s for 5 seconds", key="live_vertex_prompt")
+# Add file uploader for service account JSON key
 sa_json_file = st.file_uploader("Upload Service Account JSON Key File", type=["json"], key="sa_json_file")
 sa_json_path = None
 if sa_json_file is not None:
